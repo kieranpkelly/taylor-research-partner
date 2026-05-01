@@ -1,0 +1,15 @@
+{
+  "name": "taylor-research-partner",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A local conversational research app for the Thomas Taylor corpus.",
+  "scripts": {
+    "start": "node server.js",
+    "index": "node scripts/build-index.js",
+    "export:corpus": "node scripts/export-corpus.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

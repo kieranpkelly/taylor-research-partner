@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Thomas Taylor Research Partner</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="Corpus">
+        <div class="brand-block">
+          <div class="monogram">TT</div>
+          <div>
+            <h1>Thomas Taylor</h1>
+            <p>Research Partner</p>
+          </div>
+        </div>
+
+        <div class="auth-panel" id="authPanel" hidden>
+          <label for="authEmailInput">Private access</label>
+          <div class="auth-row">
+            <input id="authEmailInput" type="email" autocomplete="email" placeholder="you@example.com" />
+            <button class="secondary-button" id="signInButton" type="button">Send link</button>
+          </div>
+          <button class="text-button" id="signOutButton" type="button" hidden>Sign out</button>
+          <p id="authStatus"></p>
+        </div>
+
+        <dl class="status-grid" id="statusGrid">
+          <div>
+            <dt>Corpus</dt>
+            <dd>Indexing...</dd>
+          </div>
+        </dl>
+
+        <button class="secondary-button full-width" id="reindexButton" type="button">
+          Refresh corpus
+        </button>
+
+        <div class="key-panel" id="keyPanel">
+          <label for="apiKeyInput">OpenAI API key</label>
+          <div class="key-row">
+            <input id="apiKeyInput" type="password" autocomplete="off" placeholder="sk-..." />
+            <button class="secondary-button" id="saveKeyButton" type="button">Save</button>
+          </div>
+          <button class="text-button" id="clearKeyButton" type="button">Clear key</button>
+        </div>
+
+        <div class="session-panel">
+          <label for="sessionSelect">Investigations</label>
+          <div class="session-row">
+            <select id="sessionSelect"></select>
+            <button class="secondary-button" id="loadSessionButton" type="button">Load</button>
+          </div>
+          <div class="session-row">
+            <input id="sessionTitleInput" type="text" autocomplete="off" placeholder="Title" />
+            <button class="secondary-button" id="saveSessionButton" type="button">Save</button>
+          </div>
+          <button class="text-button" id="newExchangeButton" type="button">New exchange</button>
+        </div>
+
+        <button class="text-button scope-clear" id="clearScopeButton" type="button">
+          Whole corpus
+        </button>
+
+        <div class="document-list" id="documentList" aria-label="Documents"></div>
+      </aside>
+
+      <main class="main-panel">
+        <section class="composer-panel" aria-label="Inquiry">
+          <textarea
+            id="queryInput"
+            rows="3"
+            placeholder="Soul's descent and return; theurgy and symbols; matter as privation..."
+          ></textarea>
+          <div class="composer-actions">
+            <label class="switch-row">
+              <input id="allowWeb" type="checkbox" />
+              <span>External sources</span>
+            </label>
+            <button class="primary-button" id="askButton" type="button">Investigate</button>
+          </div>
+        </section>
+
+        <section class="conversation" id="conversation" aria-live="polite">
+          <div class="empty-state">
+            <p>Ready.</p>
+          </div>
+        </section>
+
+        <section class="source-dock" id="sourceDock" aria-label="Important passages"></section>
+      </main>
+
+      <aside class="reader-panel" id="readerPanel" aria-label="Passage reader">
+        <div class="reader-empty">
+          <p>Select a passage.</p>
+        </div>
+      </aside>
+    </div>
+
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>

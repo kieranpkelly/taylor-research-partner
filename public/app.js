@@ -41,6 +41,9 @@ const elements = {
   signInButton: document.querySelector("#signInButton"),
   signOutButton: document.querySelector("#signOutButton"),
   authStatus: document.querySelector("#authStatus"),
+  helpButton: document.querySelector("#helpButton"),
+  helpDialog: document.querySelector("#helpDialog"),
+  helpCloseButton: document.querySelector("#helpCloseButton"),
   sessionSelect: document.querySelector("#sessionSelect"),
   sessionTitleInput: document.querySelector("#sessionTitleInput"),
   saveSessionButton: document.querySelector("#saveSessionButton"),
@@ -73,6 +76,11 @@ elements.saveKeyButton.addEventListener("click", () => saveApiKey());
 elements.clearKeyButton.addEventListener("click", () => clearApiKey());
 elements.signInButton.addEventListener("click", () => sendSignInLink());
 elements.signOutButton.addEventListener("click", () => signOut());
+elements.helpButton.addEventListener("click", () => elements.helpDialog.showModal());
+elements.helpCloseButton.addEventListener("click", () => elements.helpDialog.close());
+elements.helpDialog.addEventListener("click", (event) => {
+  if (event.target === elements.helpDialog) elements.helpDialog.close();
+});
 elements.saveSessionButton.addEventListener("click", () => saveSession());
 elements.loadSessionButton.addEventListener("click", () => loadSession());
 elements.newExchangeButton.addEventListener("click", () => newExchange());
@@ -306,9 +314,10 @@ function renderDocumentList() {
   if (!status) return;
   elements.documentList.innerHTML = status.documents
     .map(
-      (doc) => `
+      (doc, index) => `
         <button class="doc-row ${state.selectedFiles.has(doc.file) ? "selected" : ""}" type="button" data-file="${escapeAttribute(doc.file)}" title="${escapeHtml(doc.file)}">
-          ${escapeHtml(doc.title)}
+          <span class="doc-number">${formatWorkNumber(index + 1)}</span>
+          <span class="doc-title">${escapeHtml(doc.title)}</span>
         </button>
       `
     )
@@ -335,6 +344,15 @@ function clearScope() {
 
 function selectedFilesArray() {
   return [...state.selectedFiles];
+}
+
+function formatWorkNumber(number) {
+  return String(number).padStart(2, "0");
+}
+
+function workNumberForFile(file) {
+  const index = state.status?.documents?.findIndex((document) => document.file === file) ?? -1;
+  return index >= 0 ? formatWorkNumber(index + 1) : "";
 }
 
 function messagesForRequest() {
@@ -479,12 +497,59 @@ function renderMessage(role, content, loading = false) {
   const node = document.createElement("article");
   node.className = `message ${role}`;
   node.innerHTML = `
-    <div class="message-label">${role === "user" ? "You" : "Research Partner"}</div>
-    <div class="message-body ${loading ? "loading" : ""}">${renderRichText(content)}</div>
+    <div class="message-head">
+      <div class="message-label">${role === "user" ? "You" : "Research Partner"}</div>
+      ${role === "assistant" && !loading ? messageControlsMarkup() : ""}
+    </div>
+    <div class="message-body ${loading ? "loading" : ""}" data-message-body></div>
   `;
+  setMessageView(node, content, "rendered");
+  if (role === "assistant" && !loading) wireMessageControls(node, content);
   elements.conversation.append(node);
   elements.conversation.scrollTop = elements.conversation.scrollHeight;
   return node;
+}
+
+function messageControlsMarkup() {
+  return `
+    <div class="message-actions">
+      <div class="view-toggle" aria-label="Answer view">
+        <button class="view-button active" type="button" data-message-view="rendered">Rendered</button>
+        <button class="view-button" type="button" data-message-view="markdown">Markdown</button>
+      </div>
+      <button class="icon-button copy-button" type="button" data-copy-message aria-label="Copy answer text"></button>
+    </div>
+  `;
+}
+
+function wireMessageControls(node, content) {
+  node.querySelectorAll("[data-message-view]").forEach((button) => {
+    button.addEventListener("click", () => setMessageView(node, content, button.dataset.messageView));
+  });
+  node.querySelector("[data-copy-message]")?.addEventListener("click", () => copyMessageText(node, content));
+}
+
+function setMessageView(node, content, view) {
+  const mode = view === "markdown" ? "markdown" : "rendered";
+  const body = node.querySelector("[data-message-body]");
+  if (!body) return;
+  node.dataset.view = mode;
+  body.classList.toggle("markdown-view", mode === "markdown");
+  body.innerHTML = mode === "markdown"
+    ? `<pre class="markdown-output">${escapeHtml(content)}</pre>`
+    : renderRichText(content);
+  node.querySelectorAll("[data-message-view]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.messageView === mode);
+  });
+}
+
+async function copyMessageText(node, content) {
+  const button = node.querySelector("[data-copy-message]");
+  const body = node.querySelector("[data-message-body]");
+  const text = node.dataset.view === "markdown" ? content : body?.innerText?.trim() || content;
+  await copyText(text);
+  button?.classList.add("copied");
+  window.setTimeout(() => button?.classList.remove("copied"), 1100);
 }
 
 function renderThinkingMessage(label) {
@@ -508,9 +573,10 @@ function renderSources(sources, webSources) {
   for (const source of sources) state.sources.set(source.id, source);
 
   const corpusCards = sources.slice(0, 10).map((source) => {
+    const workNumber = workNumberForFile(source.file);
     return `
       <article class="source-card" id="card-${escapeAttribute(source.id)}">
-        <h3>${escapeHtml(source.title)}</h3>
+        <h3>${workNumber ? `<span class="source-work-number">${escapeHtml(workNumber)}</span>` : ""}${escapeHtml(source.title)}</h3>
         <div class="source-meta">
           ${escapeHtml(source.section)} · ${escapeHtml(source.file)}
           ${source.sourceAlignmentCount ? ` · ${escapeHtml(source.sourceLanguages.join("/") || "Source")} phrase lookup` : ""}
@@ -565,10 +631,11 @@ async function loadPassage(id, options = {}) {
     sourceLinks,
     selectedText: ""
   };
+  const workNumber = workNumberForFile(passage.file);
 
   elements.readerPanel.innerHTML = `
     <div class="reader-title">
-      <h2>${escapeHtml(passage.title)}</h2>
+      <h2>${workNumber ? `<span class="source-work-number">${escapeHtml(workNumber)}</span>` : ""}${escapeHtml(passage.title)}</h2>
       <p>${escapeHtml(passage.section)} · ${escapeHtml(passage.file)}</p>
     </div>
     <div class="reader-actions">
@@ -959,31 +1026,54 @@ async function logClientEvent(event, details) {
 }
 
 function renderRichText(text) {
-  const withCitations = escapeHtml(text).replace(
-    /\[\[source:([a-z0-9-]+)\]\]/gi,
-    (_match, id) => `<button type="button" class="citation" data-source-id="${escapeAttribute(id)}">${escapeHtml(id)}</button>`
-  );
-
-  const linked = withCitations
-    .replace(
-      /\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g,
-      '<a href="$2" target="_blank" rel="noreferrer">$1</a>'
-    )
-    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
-    .replace(/`([^`]+)`/g, "<code>$1</code>");
-
-  return linked
+  return String(text ?? "")
     .split(/\n{2,}/)
     .map((block) => {
       const lines = block.split("\n");
       if (lines.every((line) => /^[-*]\s+/.test(line.trim()))) {
         return `<ul>${lines
-          .map((line) => `<li>${line.replace(/^[-*]\s+/, "")}</li>`)
+          .map((line) => `<li>${renderInlineMarkdown(line.replace(/^[-*]\s+/, ""))}</li>`)
           .join("")}</ul>`;
       }
-      return `<p>${lines.join("<br>")}</p>`;
+      return `<p>${lines.map(renderInlineMarkdown).join("<br>")}</p>`;
     })
     .join("");
+}
+
+function renderInlineMarkdown(line) {
+  return escapeHtml(line)
+    .replace(
+      /\[\[source:([a-z0-9-]+)\]\]/gi,
+      (_match, id) => `<button type="button" class="citation" data-source-id="${escapeAttribute(id)}">${escapeHtml(id)}</button>`
+    )
+    .replace(
+      /\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g,
+      '<a href="$2" target="_blank" rel="noreferrer">$1</a>'
+    )
+    .replace(/`([^`\n]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>");
+}
+
+async function copyText(text) {
+  const value = String(text ?? "");
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(value);
+      return;
+    } catch {
+      // Fall back for browsers that restrict Clipboard API access.
+    }
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = value;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  document.body.append(textarea);
+  textarea.select();
+  document.execCommand("copy");
+  textarea.remove();
 }
 
 function escapeHtml(value) {

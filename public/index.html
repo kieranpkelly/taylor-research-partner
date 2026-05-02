@@ -17,6 +17,10 @@
           </div>
         </div>
 
+        <button class="secondary-button full-width help-button" id="helpButton" type="button">
+          How to use
+        </button>
+
         <div class="auth-panel" id="authPanel" hidden>
           <label for="authEmailInput">Account</label>
           <div class="auth-row">
@@ -98,6 +102,24 @@
         </div>
       </aside>
     </div>
+
+    <dialog class="help-dialog" id="helpDialog" aria-labelledby="helpDialogTitle">
+      <div class="help-dialog-head">
+        <h2 id="helpDialogTitle">How to use</h2>
+        <button class="icon-button" id="helpCloseButton" type="button" aria-label="Close help"></button>
+      </div>
+      <div class="help-dialog-body">
+        <ul>
+          <li>Ask a question, theme, or passage problem in the inquiry box, then choose Investigate.</li>
+          <li>Select works in the corpus list to narrow the investigation. Leave all unselected for the whole corpus.</li>
+          <li>Turn on External sources only when you want the answer enriched beyond Taylor's corpus.</li>
+          <li>Use citations and source cards to open Taylor passages in the reader panel.</li>
+          <li>Highlight Taylor wording in an answer, excerpt, or passage, then choose Show original for a Greek or Latin estimate.</li>
+          <li>Switch each answer between Rendered and Markdown, then use the copy icon for notes or editors.</li>
+          <li>Save an exchange when you want to continue the investigation later.</li>
+        </ul>
+      </div>
+    </dialog>
 
     <script src="/app.js" type="module"></script>
   </body>

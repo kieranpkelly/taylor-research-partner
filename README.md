@@ -66,6 +66,13 @@ Apply the Supabase schema in `supabase/schema.sql`, then configure Supabase Auth
 - Site URL set to the Render URL.
 - Redirect URL set to the Render URL.
 
+Private access flow:
+
+- Users sign in at `/signin` with an already-approved email address.
+- Optional access requests are available at the unlinked `/request-access` page.
+- Access requests are stored in `public.taylor_access_requests`; review them in Supabase.
+- To approve someone, create or invite that email address in Supabase Auth, then mark the request `approved` if you want the table to reflect your decision.
+
 Render environment variables:
 
 ```sh
@@ -73,11 +80,14 @@ USE_BUNDLED_CORPUS=true
 AUTH_REQUIRED=true
 LOCAL_FILE_ACCESS=false
 ALLOW_CLIENT_API_KEYS=false
+ACCESS_REQUESTS_ENABLED=true
 APP_URL=https://your-render-app.onrender.com
 OPENAI_API_KEY=...
 SUPABASE_URL=...
-SUPABASE_ANON_KEY=...
+SUPABASE_ANON_KEY=... # public anon JWT or sb_publishable_... key only
 SUPABASE_SERVICE_ROLE_KEY=...
 ```
+
+Never put an `sb_secret_...` key in `SUPABASE_ANON_KEY`; that value is sent to the browser for Supabase Auth. If an `sb_secret_...` key is ever exposed, rotate it in Supabase and update Render.
 
 The `render.yaml` file contains the baseline Render service configuration.

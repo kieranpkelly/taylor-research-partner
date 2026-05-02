@@ -43,7 +43,8 @@ const useBundledCorpus = parseBoolean(process.env.USE_BUNDLED_CORPUS, false);
 const supabaseUrl = trimTrailingSlash(process.env.SUPABASE_URL || "");
 const supabaseAnonKey = (process.env.SUPABASE_ANON_KEY || "").trim();
 const supabaseServiceRoleKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || "").trim();
-const supabaseReady = Boolean(supabaseUrl && supabaseAnonKey && supabaseServiceRoleKey);
+const supabasePublicKeySafe = isPublicSupabaseClientKey(supabaseAnonKey);
+const supabaseReady = Boolean(supabaseUrl && supabasePublicKeySafe && supabaseServiceRoleKey);
 const authRequired = parseBoolean(process.env.AUTH_REQUIRED, supabaseReady);
 const allowClientApiKeys = parseBoolean(
   process.env.ALLOW_CLIENT_API_KEYS,
@@ -51,6 +52,10 @@ const allowClientApiKeys = parseBoolean(
 );
 const allowSupabaseSignups = parseBoolean(process.env.SUPABASE_ALLOW_SIGNUPS, false);
 const appUrl = (process.env.APP_URL || "").trim();
+const accessRequestsEnabled = parseBoolean(
+  process.env.ACCESS_REQUESTS_ENABLED,
+  authRequired && supabaseReady
+);
 const localFileAccess = parseBoolean(process.env.LOCAL_FILE_ACCESS, !authRequired);
 const maxOutputTokens = parsePositiveInteger(process.env.OPENAI_MAX_OUTPUT_TOKENS, 12000);
 const retryMaxOutputTokens = parsePositiveInteger(
@@ -72,10 +77,20 @@ const server = http.createServer(async (request, response) => {
         authRequired,
         supabaseReady,
         supabaseUrl: authRequired ? supabaseUrl : "",
-        supabaseAnonKey: authRequired ? supabaseAnonKey : "",
+        supabaseAnonKey: authRequired && supabasePublicKeySafe ? supabaseAnonKey : "",
+        configError: authRequired && !supabasePublicKeySafe
+          ? "SUPABASE_ANON_KEY must be a public anon or publishable key, not a secret/service role key."
+          : "",
         allowSignups: allowSupabaseSignups,
+        accessRequestsEnabled,
         appUrl
       });
+    }
+
+    if (url.pathname === "/api/access-request" && request.method === "POST") {
+      const body = await readJson(request);
+      const result = await saveAccessRequest(body);
+      return sendJson(response, result.payload, result.status);
     }
 
     const auth = await getAuthContext(request);
@@ -705,6 +720,55 @@ async function logUsage(event, details = {}, user = null) {
   }
 }
 
+async function saveAccessRequest(body) {
+  if (!accessRequestsEnabled || !supabaseReady) {
+    return {
+      status: 503,
+      payload: { error: "Access requests are not configured yet." }
+    };
+  }
+
+  const email = normalizeEmail(body.email);
+  if (!email) {
+    return {
+      status: 400,
+      payload: { error: "Enter a complete email address." }
+    };
+  }
+
+  const existing = await supabaseRest(
+    `taylor_access_requests?select=id,status&email=eq.${encodeURIComponent(email)}&limit=1`
+  );
+  if (existing.length) {
+    return {
+      status: 200,
+      payload: {
+        ok: true,
+        message: "Your access request is already on the review list."
+      }
+    };
+  }
+
+  await supabaseRest("taylor_access_requests", {
+    method: "POST",
+    body: {
+      email,
+      name: cleanShortText(body.name, 120),
+      note: cleanShortText(body.note, 1000),
+      status: "pending"
+    },
+    prefer: "return=minimal"
+  });
+
+  return {
+    status: 200,
+    payload: {
+      ok: true,
+      message: "Access request received."
+    }
+  };
+}
+
 function formatUsageEntry(event, details) {
   const lines = [
     `## ${new Date().toISOString()} - ${event}`,
@@ -997,6 +1061,37 @@ function parseBoolean(value, fallback = false) {
   return /^(1|true|yes|on)$/i.test(String(value).trim());
 }
 
+function normalizeEmail(value) {
+  const email = String(value ?? "").trim().toLowerCase();
+  if (email.length > 254) return "";
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : "";
+}
+
+function cleanShortText(value, maxLength) {
+  return String(value ?? "").replace(/\s+/g, " ").trim().slice(0, maxLength);
+}
+
+function isPublicSupabaseClientKey(value) {
+  const key = String(value ?? "").trim();
+  if (!key) return false;
+  if (key.startsWith("sb_publishable_")) return true;
+  if (key.startsWith("sb_secret_")) return false;
+
+  const [, payload] = key.split(".");
+  if (!payload) return false;
+  try {
+    const decoded = JSON.parse(Buffer.from(base64UrlToBase64(payload), "base64").toString("utf8"));
+    return decoded.role === "anon";
+  } catch {
+    return false;
+  }
+}
+
+function base64UrlToBase64(value) {
+  const normalized = String(value).replace(/-/g, "+").replace(/_/g, "/");
+  return normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
+}
+
 function trimTrailingSlash(value) {
   return String(value ?? "").replace(/\/+$/, "");
 }
@@ -1017,7 +1112,11 @@ function sendJson(response, payload, status = 200) {
 }
 
 async function serveStatic(urlPath, response) {
-  const safePath = urlPath === "/" ? "/index.html" : decodeURIComponent(urlPath);
+  const routeAliases = {
+    "/signin": "/signin.html",
+    "/request-access": "/request-access.html"
+  };
+  const safePath = routeAliases[urlPath] ?? (urlPath === "/" ? "/index.html" : decodeURIComponent(urlPath));
   const filePath = path.normalize(path.join(publicDir, safePath));
   if (!filePath.startsWith(publicDir)) {
     response.writeHead(403);

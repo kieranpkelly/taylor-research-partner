@@ -12,7 +12,8 @@ const state = {
     ready: false,
     user: null,
     session: null,
-    accessToken: ""
+    accessToken: "",
+    redirectUrl: ""
   },
   supabase: null,
   lookupContext: null,
@@ -106,9 +107,17 @@ async function bootstrapAuth() {
   const config = await getJson("/api/auth/config");
   state.auth.required = Boolean(config.authRequired);
   state.auth.ready = true;
+  state.auth.redirectUrl = config.appUrl || window.location.origin;
 
   if (!state.auth.required) {
     renderAuthState();
+    return;
+  }
+
+  if (!config.supabaseReady || config.configError) {
+    elements.authPanel.hidden = false;
+    elements.authStatus.textContent = config.configError || "Authentication is not configured correctly.";
+    renderSignedOut();
     return;
   }
 
@@ -149,6 +158,11 @@ async function initializeAuthenticatedApp() {
 }
 
 function renderSignedOut() {
+  if (state.auth.required && !state.auth.user && !isSignInPage()) {
+    window.location.replace("/signin");
+    return;
+  }
+
   elements.statusGrid.innerHTML = `
     <div>
       <dt>Corpus</dt>
@@ -177,8 +191,8 @@ function renderAuthState() {
 async function sendSignInLink() {
   if (!state.supabase) return;
   const email = elements.authEmailInput.value.trim();
-  if (!email) {
-    elements.authStatus.textContent = "Enter your email address first.";
+  if (!isLikelyEmail(email)) {
+    elements.authStatus.textContent = "Enter your complete invited email address.";
     return;
   }
 
@@ -189,13 +203,13 @@ async function sendSignInLink() {
       email,
       options: {
         shouldCreateUser: false,
-        emailRedirectTo: window.location.origin
+        emailRedirectTo: state.auth.redirectUrl || window.location.origin
       }
     });
     if (error) throw error;
     elements.authStatus.textContent = "Check your email for a sign-in link.";
   } catch (error) {
-    elements.authStatus.textContent = error.message ?? "Could not send sign-in link.";
+    elements.authStatus.textContent = friendlyAuthError(error);
   } finally {
     elements.signInButton.disabled = false;
   }
@@ -207,6 +221,7 @@ async function signOut() {
   newExchange();
   renderSignedOut();
   renderAuthState();
+  if (state.auth.required) window.location.assign("/signin");
 }
 
 async function submitInquiry() {
@@ -917,6 +932,22 @@ function handleAuthExpired() {
   setAuthSession(null);
   renderSignedOut();
   renderAuthState();
+}
+
+function isSignInPage() {
+  return window.location.pathname === "/signin" || window.location.pathname === "/signin.html";
+}
+
+function isLikelyEmail(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value ?? "").trim());
+}
+
+function friendlyAuthError(error) {
+  const message = String(error?.message ?? error ?? "");
+  if (/signups?\s+not\s+allowed|otp|not\s+found/i.test(message)) {
+    return "That email is not on the approved private-access list yet.";
+  }
+  return message || "Could not send sign-in link.";
 }
 
 async function logClientEvent(event, details) {

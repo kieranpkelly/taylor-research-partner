@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Sign in · Thomas Taylor Research Partner</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body class="auth-page">
+    <main class="auth-card" aria-labelledby="signinTitle">
+      <div class="brand-block auth-brand">
+        <div class="monogram">TT</div>
+        <div>
+          <h1 id="signinTitle">Thomas Taylor</h1>
+          <p>Research Partner</p>
+        </div>
+      </div>
+
+      <form class="auth-form" id="signInForm">
+        <label for="signInEmail">Private access</label>
+        <input id="signInEmail" type="email" autocomplete="email" placeholder="you@example.com" required />
+        <button class="primary-button" id="signInSubmit" type="submit">Send sign-in link</button>
+        <p class="auth-status" id="signInStatus">Use the email address that has been approved for this private beta.</p>
+      </form>
+    </main>
+
+    <script src="/signin.js" type="module"></script>
+  </body>
+</html>

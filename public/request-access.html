@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Request access · Thomas Taylor Research Partner</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body class="auth-page">
+    <main class="auth-card" aria-labelledby="requestTitle">
+      <div class="brand-block auth-brand">
+        <div class="monogram">TT</div>
+        <div>
+          <h1 id="requestTitle">Request Access</h1>
+          <p>Thomas Taylor Research Partner</p>
+        </div>
+      </div>
+
+      <form class="auth-form" id="accessRequestForm">
+        <label for="requestEmail">Email</label>
+        <input id="requestEmail" type="email" autocomplete="email" placeholder="you@example.com" required />
+
+        <label for="requestName">Name</label>
+        <input id="requestName" type="text" autocomplete="name" placeholder="Optional" />
+
+        <label for="requestNote">Note</label>
+        <textarea id="requestNote" rows="4" placeholder="Optional"></textarea>
+
+        <button class="primary-button" id="requestSubmit" type="submit">Request access</button>
+        <p class="auth-status" id="requestStatus">Requests are reviewed manually.</p>
+      </form>
+
+      <a class="auth-link" href="/signin">Return to sign in</a>
+    </main>
+
+    <script src="/request-access.js" type="module"></script>
+  </body>
+</html>

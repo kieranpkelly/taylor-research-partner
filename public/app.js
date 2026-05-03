@@ -1026,18 +1026,163 @@ async function logClientEvent(event, details) {
 }
 
 function renderRichText(text) {
-  return String(text ?? "")
-    .split(/\n{2,}/)
-    .map((block) => {
-      const lines = block.split("\n");
-      if (lines.every((line) => /^[-*]\s+/.test(line.trim()))) {
-        return `<ul>${lines
-          .map((line) => `<li>${renderInlineMarkdown(line.replace(/^[-*]\s+/, ""))}</li>`)
-          .join("")}</ul>`;
+  const lines = String(text ?? "").replace(/\r/g, "").split("\n");
+  const blocks = [];
+  let paragraph = [];
+  let list = null;
+
+  const flushParagraph = () => {
+    if (!paragraph.length) return;
+    blocks.push(`<p>${paragraph.map(renderInlineMarkdown).join("<br>")}</p>`);
+    paragraph = [];
+  };
+
+  const flushList = () => {
+    if (!list) return;
+    const tag = list.type === "ordered" ? "ol" : "ul";
+    blocks.push(`<${tag}>${list.items.map((item) => `<li>${renderInlineMarkdown(item)}</li>`).join("")}</${tag}>`);
+    list = null;
+  };
+
+  const flushOpenBlocks = () => {
+    flushParagraph();
+    flushList();
+  };
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    const trimmed = line.trim();
+
+    if (!trimmed) {
+      flushOpenBlocks();
+      continue;
+    }
+
+    if (isMarkdownTableStart(lines, index)) {
+      flushOpenBlocks();
+      const tableLines = [lines[index], lines[index + 1]];
+      index += 2;
+      while (index < lines.length && isMarkdownTableRow(lines[index])) {
+        tableLines.push(lines[index]);
+        index += 1;
       }
-      return `<p>${lines.map(renderInlineMarkdown).join("<br>")}</p>`;
+      index -= 1;
+      blocks.push(renderMarkdownTable(tableLines));
+      continue;
+    }
+
+    const heading = trimmed.match(/^(#{1,4})\s+(.+)$/);
+    if (heading) {
+      flushOpenBlocks();
+      const level = Math.min(4, Math.max(2, heading[1].length + 1));
+      blocks.push(`<h${level}>${renderInlineMarkdown(heading[2])}</h${level}>`);
+      continue;
+    }
+
+    const unordered = trimmed.match(/^[-*]\s+(.+)$/);
+    if (unordered) {
+      flushParagraph();
+      if (!list || list.type !== "unordered") {
+        flushList();
+        list = { type: "unordered", items: [] };
+      }
+      list.items.push(unordered[1]);
+      continue;
+    }
+
+    const ordered = trimmed.match(/^\d+[.)]\s+(.+)$/);
+    if (ordered) {
+      flushParagraph();
+      if (!list || list.type !== "ordered") {
+        flushList();
+        list = { type: "ordered", items: [] };
+      }
+      list.items.push(ordered[1]);
+      continue;
+    }
+
+    flushList();
+    paragraph.push(trimmed);
+  }
+
+  flushOpenBlocks();
+  return blocks.join("");
+}
+
+function isMarkdownTableStart(lines, index) {
+  return isMarkdownTableRow(lines[index]) && isMarkdownTableSeparator(lines[index + 1]);
+}
+
+function isMarkdownTableRow(line) {
+  const value = String(line ?? "").trim();
+  return value.startsWith("|") && value.endsWith("|") && splitMarkdownTableRow(value).length >= 2;
+}
+
+function isMarkdownTableSeparator(line) {
+  if (!isMarkdownTableRow(line)) return false;
+  return splitMarkdownTableRow(line).every((cell) => /^:?-{3,}:?$/.test(cell.trim()));
+}
+
+function splitMarkdownTableRow(line) {
+  const value = String(line ?? "").trim().replace(/^\|/, "").replace(/\|$/, "");
+  const cells = [];
+  let cell = "";
+  let escaped = false;
+
+  for (const char of value) {
+    if (escaped) {
+      cell += char;
+      escaped = false;
+      continue;
+    }
+
+    if (char === "\\") {
+      escaped = true;
+      continue;
+    }
+
+    if (char === "|") {
+      cells.push(cell.trim());
+      cell = "";
+      continue;
+    }
+
+    cell += char;
+  }
+
+  if (escaped) cell += "\\";
+  cells.push(cell.trim());
+  return cells;
+}
+
+function renderMarkdownTable(tableLines) {
+  const headers = splitMarkdownTableRow(tableLines[0]);
+  const rows = tableLines.slice(2).map(splitMarkdownTableRow);
+  const columnCount = Math.max(headers.length, ...rows.map((row) => row.length));
+  const headerCells = normalizeTableCells(headers, columnCount)
+    .map((cell) => `<th>${renderInlineMarkdown(cell)}</th>`)
+    .join("");
+  const bodyRows = rows
+    .map((row) => {
+      const cells = normalizeTableCells(row, columnCount)
+        .map((cell) => `<td>${renderInlineMarkdown(cell)}</td>`)
+        .join("");
+      return `<tr>${cells}</tr>`;
     })
     .join("");
+
+  return `
+    <div class="markdown-table-wrap">
+      <table class="markdown-table">
+        <thead><tr>${headerCells}</tr></thead>
+        <tbody>${bodyRows}</tbody>
+      </table>
+    </div>
+  `;
+}
+
+function normalizeTableCells(cells, columnCount) {
+  return Array.from({ length: columnCount }, (_unused, index) => cells[index] ?? "");
 }
 
 function renderInlineMarkdown(line) {

@@ -597,6 +597,46 @@ textarea:focus {
   margin: 0 0 12px;
 }
 
+.message-body h2,
+.message-body h3,
+.message-body h4 {
+  margin: 18px 0 9px;
+  color: var(--ink);
+  line-height: 1.25;
+  letter-spacing: 0;
+}
+
+.message-body h2:first-child,
+.message-body h3:first-child,
+.message-body h4:first-child {
+  margin-top: 0;
+}
+
+.message-body h2 {
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1.22rem;
+}
+
+.message-body h3 {
+  font-size: 1.08rem;
+  font-weight: 800;
+}
+
+.message-body h4 {
+  color: #2f3b40;
+  font-size: 0.98rem;
+  font-weight: 800;
+}
+
+.message-body ul,
+.message-body ol {
+  padding-left: 22px;
+}
+
+.message-body li + li {
+  margin-top: 5px;
+}
+
 .message-body p:last-child,
 .message-body ul:last-child,
 .message-body ol:last-child {
@@ -611,6 +651,51 @@ textarea:focus {
   padding: 1px 4px;
   background: #eef2f4;
   border-radius: 4px;
+}
+
+.markdown-table-wrap {
+  width: 100%;
+  margin: 12px 0 16px;
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.markdown-table-wrap:last-child {
+  margin-bottom: 0;
+}
+
+.markdown-table {
+  width: 100%;
+  min-width: 640px;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+  line-height: 1.45;
+}
+
+.markdown-table th,
+.markdown-table td {
+  padding: 10px 12px;
+  border-right: 1px solid #e6ecef;
+  border-bottom: 1px solid #e6ecef;
+  text-align: left;
+  vertical-align: top;
+}
+
+.markdown-table th:last-child,
+.markdown-table td:last-child {
+  border-right: 0;
+}
+
+.markdown-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.markdown-table th {
+  background: #eef2f1;
+  color: #1f2a2f;
+  font-weight: 800;
 }
 
 .markdown-output {

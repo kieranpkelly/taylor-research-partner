@@ -62,11 +62,13 @@ const retryMaxOutputTokens = parsePositiveInteger(
   process.env.OPENAI_RETRY_MAX_OUTPUT_TOKENS,
   Math.max(16000, maxOutputTokens)
 );
+const outputGuidelinesPath = path.resolve(process.env.OUTPUT_GUIDELINES_PATH || path.join(__dirname, "data", "output-guidelines.md"));
 
 let corpusIndex = useBundledCorpus
   ? await loadCorpusIndexFile(bundledCorpusPath)
   : await loadOrBuildCorpusIndex(paths.rootDir, paths.cacheDir);
 let searchEngine = createSearchEngine(corpusIndex);
+const outputGuidelines = await loadOutputGuidelines(outputGuidelinesPath);
 
 const server = http.createServer(async (request, response) => {
   try {
@@ -498,8 +500,9 @@ function createOpenAIPayload({ prompt, externalAllowed, effort, maxOutputTokens 
       "Distinguish Taylor's editorial voice from the ancient authors he translates when the passage makes that clear.",
       "Use clear, clickable corpus citations in this exact format: [[source:PASSAGE_ID]].",
       "When external web search is unavailable, stay inside the corpus and say what outside context could add only when relevant.",
-      "Always return a visible answer. Prefer a complete bounded synthesis over an overlong answer that exhausts the response budget."
-    ].join("\n"),
+      "Always return a visible answer. Prefer a complete bounded synthesis over an overlong answer that exhausts the response budget.",
+      outputGuidelines ? `Follow these project output guidelines unless the user explicitly asks otherwise:\n${outputGuidelines}` : ""
+    ].filter(Boolean).join("\n"),
     input: prompt,
     reasoning: { effort },
     max_output_tokens: maxOutputTokens
@@ -1144,6 +1147,17 @@ function contentType(filePath) {
   if (ext === ".js") return "application/javascript; charset=utf-8";
   if (ext === ".svg") return "image/svg+xml";
   return "application/octet-stream";
+}
+
+async function loadOutputGuidelines(filePath) {
+  try {
+    return (await fs.readFile(filePath, "utf8")).trim();
+  } catch (error) {
+    if (error?.code !== "ENOENT") {
+      console.warn("Could not read output guidelines:", error);
+    }
+    return "";
+  }
 }
 
 async function loadDotEnv(filePath) {

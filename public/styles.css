@@ -335,7 +335,7 @@ dd {
   content: attr(data-tooltip);
   position: absolute;
   left: 50%;
-  bottom: calc(100% + 8px);
+  top: calc(100% + 8px);
   z-index: 20;
   width: max-content;
   max-width: 260px;
@@ -349,7 +349,7 @@ dd {
   text-align: left;
   opacity: 0;
   pointer-events: none;
-  transform: translate(-50%, 4px);
+  transform: translate(-50%, -4px);
   transition: opacity 120ms ease, transform 120ms ease;
 }
 

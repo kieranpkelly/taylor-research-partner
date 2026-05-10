@@ -73,6 +73,16 @@
 
       <main class="main-panel">
         <section class="composer-panel" aria-label="Inquiry">
+          <div class="mode-panel" aria-label="Research mode">
+            <span class="mode-label">Mode</span>
+            <div class="mode-toggle" role="group" aria-label="Research mode">
+              <button class="mode-button active" type="button" data-research-mode="standard" data-tooltip="Let the app infer whether to find, gather references, synthesize, or go deeper.">Standard mode</button>
+              <button class="mode-button" type="button" data-research-mode="find-passage" data-tooltip="Pinpoint the likely location of a passage, even from a quote, variant wording, or paraphrase.">Find a passage</button>
+              <button class="mode-button" type="button" data-research-mode="find-references" data-tooltip="Gather a broad but prioritized map of references across the corpus, with lighter commentary.">Find all references</button>
+              <button class="mode-button" type="button" data-research-mode="synthesis" data-tooltip="Give a medium-length treatment of the subject with key references for further reading.">Synthesis</button>
+              <button class="mode-button" type="button" data-research-mode="deep-research" data-tooltip="Run a broader multi-pass search and produce a longer essay with extensive references.">Deep research</button>
+            </div>
+          </div>
           <textarea
             id="queryInput"
             rows="3"
@@ -111,6 +121,7 @@
       <div class="help-dialog-body">
         <ul>
           <li>Ask a question, theme, or passage problem in the inquiry box, then choose Investigate.</li>
+          <li>Choose a mode when you want a specific kind of work: passage finding, reference gathering, synthesis, or deep research.</li>
           <li>Select works in the corpus list to narrow the investigation. Leave all unselected for the whole corpus.</li>
           <li>Turn on External sources only when you want the answer enriched beyond Taylor's corpus.</li>
           <li>Use citations and source cards to open Taylor passages in the reader panel.</li>

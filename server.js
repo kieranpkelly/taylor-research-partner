@@ -70,6 +70,46 @@ let corpusIndex = useBundledCorpus
 let searchEngine = createSearchEngine(corpusIndex);
 const outputGuidelines = await loadOutputGuidelines(outputGuidelinesPath);
 
+const researchModes = new Set(["standard", "find-passage", "find-references", "synthesis", "deep-research"]);
+const retrievalProfiles = {
+  "find-passage": {
+    resultLimit: 34,
+    latestLimit: 28,
+    contextLimit: 8,
+    promptSources: 16,
+    promptChars: 2200,
+    outputTokens: maxOutputTokens,
+    sourceDisplayLimit: 16
+  },
+  "find-references": {
+    resultLimit: 72,
+    latestLimit: 60,
+    contextLimit: 16,
+    promptSources: 28,
+    promptChars: 1050,
+    outputTokens: maxOutputTokens,
+    sourceDisplayLimit: 30
+  },
+  synthesis: {
+    resultLimit: 30,
+    latestLimit: 24,
+    contextLimit: 12,
+    promptSources: 12,
+    promptChars: 1800,
+    outputTokens: maxOutputTokens,
+    sourceDisplayLimit: 10
+  },
+  "deep-research": {
+    resultLimit: 80,
+    latestLimit: 48,
+    contextLimit: 36,
+    promptSources: 30,
+    promptChars: 1450,
+    outputTokens: Math.max(maxOutputTokens, 18000),
+    sourceDisplayLimit: 24
+  }
+};
+
 const server = http.createServer(async (request, response) => {
   try {
     const url = new URL(request.url ?? "/", `http://${request.headers.host}`);
@@ -141,19 +181,31 @@ const server = http.createServer(async (request, response) => {
 
       const selectedFiles = normalizeSelectedFiles(body.selectedFiles);
       const externalAllowed = Boolean(body.allowWeb) || detectExternalRequest(query);
-      const results = searchCorpus(searchEngine, query, { limit: 18, files: selectedFiles });
+      const researchMode = normalizeResearchMode(body.researchMode);
+      const retrieval = retrieveCorpusEvidence({
+        query,
+        messages: [{ role: "user", content: query }],
+        selectedFiles,
+        researchMode
+      });
       const answer = await answerInquiry({
         query,
         messages: [{ role: "user", content: query }],
-        results,
+        results: retrieval.results,
         externalAllowed,
         apiKey: getRequestApiKey(request),
-        selectedFiles
+        selectedFiles,
+        researchMode,
+        effectiveMode: retrieval.effectiveMode,
+        retrievalSummary: retrieval.summary,
+        promptOptions: retrieval.promptOptions
       });
       await logUsage("Search submitted", {
         query,
         selectedFiles,
-        resultCount: results.length,
+        researchMode,
+        effectiveMode: retrieval.effectiveMode,
+        resultCount: retrieval.results.length,
         usedAI: answer.usedAI,
         usedWeb: answer.usedWeb
       }, auth.user);
@@ -169,24 +221,32 @@ const server = http.createServer(async (request, response) => {
 
       const selectedFiles = normalizeSelectedFiles(body.selectedFiles);
       const externalAllowed = Boolean(body.allowWeb) || detectExternalRequest(query);
-      const retrievalQuery = messages
-        .slice(-4)
-        .map((message) => message.content)
-        .join("\n");
-      const results = searchCorpus(searchEngine, retrievalQuery, { limit: 16, files: selectedFiles });
+      const researchMode = normalizeResearchMode(body.researchMode);
+      const retrieval = retrieveCorpusEvidence({
+        query,
+        messages,
+        selectedFiles,
+        researchMode
+      });
       const answer = await answerInquiry({
         query,
         messages,
-        results,
+        results: retrieval.results,
         externalAllowed,
         apiKey: getRequestApiKey(request),
-        selectedFiles
+        selectedFiles,
+        researchMode,
+        effectiveMode: retrieval.effectiveMode,
+        retrievalSummary: retrieval.summary,
+        promptOptions: retrieval.promptOptions
       });
       await logUsage("Conversation turn submitted", {
         query,
         selectedFiles,
+        researchMode,
+        effectiveMode: retrieval.effectiveMode,
         messageCount: messages.length,
-        resultCount: results.length,
+        resultCount: retrieval.results.length,
         usedAI: answer.usedAI,
         usedWeb: answer.usedWeb
       }, auth.user);
@@ -203,6 +263,7 @@ const server = http.createServer(async (request, response) => {
       await logUsage("Investigation saved", {
         title: session.title,
         selectedFiles: session.selectedFiles,
+        researchMode: normalizeResearchMode(body.researchMode),
         messageCount: session.messages.length
       }, auth.user);
       return sendJson(response, session);
@@ -312,7 +373,202 @@ server.listen(port, () => {
   }
 });
 
-async function answerInquiry({ query, messages, results, externalAllowed, apiKey, selectedFiles }) {
+function retrieveCorpusEvidence({ query, messages, selectedFiles, researchMode }) {
+  const effectiveMode = effectiveResearchMode(researchMode, query);
+  const profile = retrievalProfiles[effectiveMode] ?? retrievalProfiles.synthesis;
+  const searches = [];
+  const quotedPhrases = extractQuotedPhrases(query);
+
+  for (const phrase of quotedPhrases.slice(0, 4)) {
+    searches.push({
+      query: phrase,
+      limit: profile.latestLimit,
+      boost: 80,
+      reason: "quoted phrase or near-quote from the latest inquiry"
+    });
+  }
+
+  searches.push({
+    query,
+    limit: profile.latestLimit,
+    boost: latestQueryBoost(effectiveMode),
+    reason: "latest inquiry searched directly"
+  });
+
+  if (profile.contextLimit > 0 && shouldBlendConversationContext(effectiveMode, messages)) {
+    searches.push({
+      query: messages
+        .slice(-4)
+        .map((message) => message.content)
+        .join("\n"),
+      limit: profile.contextLimit,
+      boost: 0,
+      reason: "recent conversation context"
+    });
+  }
+
+  const results = mergeSearchResults(
+    searches.flatMap((search) => {
+      return searchCorpus(searchEngine, search.query, {
+        limit: search.limit,
+        files: selectedFiles
+      }).map((result) => ({
+        ...result,
+        score: Number((result.score + search.boost).toFixed(3)),
+        searchReason: search.reason
+      }));
+    }),
+    profile.resultLimit
+  );
+
+  return {
+    results,
+    researchMode,
+    effectiveMode,
+    promptOptions: profile,
+    summary: [
+      `${results.length} ranked passage${results.length === 1 ? "" : "s"} returned from the corpus.`,
+      quotedPhrases.length
+        ? `${quotedPhrases.length} quoted phrase${quotedPhrases.length === 1 ? "" : "s"} searched directly before thematic retrieval.`
+        : "The latest inquiry was searched directly before any conversation-context search.",
+      researchMode === "standard" && effectiveMode !== "synthesis"
+        ? `Standard mode inferred ${researchModeLabel(effectiveMode)} from the wording of the inquiry.`
+        : ""
+    ].filter(Boolean).join(" ")
+  };
+}
+
+function mergeSearchResults(results, limit) {
+  const byId = new Map();
+  for (const result of results) {
+    const existing = byId.get(result.id);
+    if (!existing || result.score > existing.score) {
+      byId.set(result.id, result);
+    }
+  }
+  return [...byId.values()]
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit);
+}
+
+function normalizeResearchMode(mode) {
+  const value = String(mode ?? "").trim();
+  return researchModes.has(value) ? value : "standard";
+}
+
+function effectiveResearchMode(mode, query) {
+  const normalized = normalizeResearchMode(mode);
+  if (normalized !== "standard") return normalized;
+
+  if (looksLikeReferenceSweep(query)) return "find-references";
+  if (looksLikePassageFinding(query)) return "find-passage";
+  if (looksLikeDeepResearch(query)) return "deep-research";
+  return "synthesis";
+}
+
+function looksLikePassageFinding(query) {
+  const text = String(query ?? "");
+  return (
+    extractQuotedPhrases(text).length > 0 ||
+    /\b(find|locate|pinpoint|where is|where does|passage|quote|quotation|phrase|footnote|remember|exists|unable to find)\b/i.test(text)
+  );
+}
+
+function looksLikeReferenceSweep(query) {
+  return /\b(all|every|everywhere|references|occurrences|instances|places|catalogue|catalog|list)\b.{0,80}\b(reference|references|occurrence|occurrences|instance|instances|passage|passages|mentions|places)\b/i.test(String(query ?? ""));
+}
+
+function looksLikeDeepResearch(query) {
+  return /\b(deep|deeper|comprehensive|exhaustive|long-form|long form|essay|full treatment|deep dive|thorough)\b/i.test(String(query ?? ""));
+}
+
+function shouldBlendConversationContext(effectiveMode, messages) {
+  if (!Array.isArray(messages) || messages.length <= 1) return false;
+  return effectiveMode !== "find-passage";
+}
+
+function latestQueryBoost(effectiveMode) {
+  if (effectiveMode === "find-passage") return 55;
+  if (effectiveMode === "find-references") return 20;
+  return 28;
+}
+
+function extractQuotedPhrases(text) {
+  const value = String(text ?? "");
+  const phrases = [];
+  const patterns = [
+    /"([^"]{4,600})"/g,
+    /“([^”]{4,600})”/g,
+    /`([^`]{4,600})`/g
+  ];
+
+  for (const pattern of patterns) {
+    for (const match of value.matchAll(pattern)) {
+      const phrase = match[1]?.replace(/\s+/g, " ").trim();
+      if (phrase && !phrases.includes(phrase)) phrases.push(phrase);
+    }
+  }
+  return phrases;
+}
+
+function researchModeLabel(mode) {
+  switch (normalizeResearchMode(mode)) {
+    case "find-passage":
+      return "Find a passage";
+    case "find-references":
+      return "Find all references";
+    case "synthesis":
+      return "Synthesis";
+    case "deep-research":
+      return "Deep research";
+    default:
+      return "Standard mode";
+  }
+}
+
+function modeInstruction(mode) {
+  switch (normalizeResearchMode(mode)) {
+    case "find-passage":
+      return [
+        "Mode instruction: Find a passage.",
+        "Prioritize pinpointing likely locations over broad analysis. If a quoted or paraphrased passage is found, lead with the strongest passage IDs, confidence, and the exact nearby Taylor wording. Mention important variant wording, such as Greek/Latin deity names versus Taylor's English or Romanized names. Keep commentary brief."
+      ].join(" ");
+    case "find-references":
+      return [
+        "Mode instruction: Find all references.",
+        "Prioritize a broad, ranked reference map over essay-style interpretation. Group references by work or theme when helpful. If the subject is extremely numerous, say that the list is prioritized rather than exhaustive, and explain the narrowing principle."
+      ].join(" ");
+    case "deep-research":
+      return [
+        "Mode instruction: Deep research.",
+        "Produce a long-form, carefully structured essay grounded in the corpus. Use extensive citations, distinguish stronger from weaker evidence, and include a final list of further passages to inspect."
+      ].join(" ");
+    case "synthesis":
+      return [
+        "Mode instruction: Synthesis.",
+        "Give a medium-length treatment of the subject, drawing together the strongest corpus evidence and ending with key references for further reading."
+      ].join(" ");
+    default:
+      return [
+        "Mode instruction: Standard mode.",
+        "Infer the user's research need from the inquiry and answer in the most useful form."
+      ].join(" ");
+  }
+}
+
+async function answerInquiry({
+  query,
+  messages,
+  results,
+  externalAllowed,
+  apiKey,
+  selectedFiles,
+  researchMode,
+  effectiveMode,
+  retrievalSummary,
+  promptOptions
+}) {
+  const profile = promptOptions ?? retrievalProfiles[effectiveMode] ?? retrievalProfiles.synthesis;
   const sourceLinks = sourceLinksForResults(results);
   const originalLookupMatches = originalLanguageRequested(query)
     ? lookupSourcePhrase({ selectedText: query, limit: 8 })
@@ -328,6 +584,9 @@ async function answerInquiry({ query, messages, results, externalAllowed, apiKey
       sourceLinks,
       usedAI: false,
       usedWeb: false,
+      researchMode,
+      effectiveMode,
+      sourceDisplayLimit: profile.sourceDisplayLimit,
       model
     };
   }
@@ -335,10 +594,13 @@ async function answerInquiry({ query, messages, results, externalAllowed, apiKey
   const prompt = [
     `Current inquiry: ${query}`,
     `Corpus scope: ${describeScope(selectedFiles)}.`,
+    `Requested research mode: ${researchModeLabel(researchMode)}.`,
+    `Effective research mode for this turn: ${researchModeLabel(effectiveMode)}.`,
     `External web permission: ${externalAllowed ? "granted" : "not granted"}.`,
+    retrievalSummary ? `Retrieval summary: ${retrievalSummary}` : "",
     "",
     "Retrieved Thomas Taylor corpus passages:",
-    formatSourcesForPrompt(results, { maxSources: 10, maxChars: 1800 }),
+    formatSourcesForPrompt(results, { maxSources: profile.promptSources, maxChars: profile.promptChars }),
     "",
     originalLookupMatches.length
       ? [
@@ -350,15 +612,16 @@ async function answerInquiry({ query, messages, results, externalAllowed, apiKey
     "Conversation so far:",
     formatConversation(messages, { limit: 8, maxChars: 1600 }),
     "",
+    modeInstruction(effectiveMode),
     "Answer the current inquiry as a rigorous but conversational research partner. Start with Taylor's corpus, synthesize the theme across works, include short Taylor excerpts where useful, and cite corpus passages with [[source:PASSAGE_ID]]. Do not introduce Greek or Latin unless the current user inquiry explicitly asks about the original wording, translation, or interpretation of a selected phrase. When original-language phrase lookup matches are supplied, keep them subordinate to the Taylor discussion and state confidence clearly. If web access is granted, use it only to enrich or contrast the corpus reading, and keep web citations visible.",
     "Return one complete answer. Do not stop mid-sentence. If the inquiry is broad, give a complete high-level synthesis and propose narrower follow-up paths rather than trying to exhaust every detail."
-  ].join("\n");
+  ].filter(Boolean).join("\n");
 
   const ai = await callOpenAI({
     prompt,
     externalAllowed,
     apiKey,
-    maxOutputTokens
+    maxOutputTokens: profile.outputTokens
   });
 
   return {
@@ -368,6 +631,9 @@ async function answerInquiry({ query, messages, results, externalAllowed, apiKey
     webSources: ai.webSources,
     usedAI: true,
     usedWeb: externalAllowed,
+    researchMode,
+    effectiveMode,
+    sourceDisplayLimit: profile.sourceDisplayLimit,
     model
   };
 }
@@ -782,6 +1048,10 @@ function formatUsageEntry(event, details) {
 
   if (details.query) lines.push(`Query: ${JSON.stringify(details.query)}`);
   if (details.title) lines.push(`Investigation: ${details.title}`);
+  if (details.researchMode) lines.push(`Mode: ${researchModeLabel(details.researchMode)}`);
+  if (details.effectiveMode && details.effectiveMode !== details.researchMode) {
+    lines.push(`Effective mode: ${researchModeLabel(details.effectiveMode)}`);
+  }
   if (details.selectedFiles) lines.push(`Scope: ${describeScope(details.selectedFiles)}`);
   if (typeof details.messageCount === "number") lines.push(`Conversation length: ${details.messageCount} messages`);
   if (typeof details.resultCount === "number") lines.push(`Retrieved passages: ${details.resultCount}`);
@@ -847,6 +1117,7 @@ async function saveSession(body, user = null) {
     createdAt: body.createdAt || now,
     updatedAt: now,
     selectedFiles,
+    researchMode: normalizeResearchMode(body.researchMode),
     allowWeb: Boolean(body.allowWeb),
     messages
   };
@@ -899,6 +1170,7 @@ function sessionMetadata(session) {
     createdAt: session.createdAt,
     updatedAt: session.updatedAt,
     selectedFiles: session.selectedFiles ?? [],
+    researchMode: session.researchMode ?? "standard",
     messageCount: Array.isArray(session.messages) ? session.messages.length : 0
   };
 }
@@ -910,6 +1182,7 @@ function dbSessionMetadata(row) {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     selectedFiles: row.selected_files ?? [],
+    researchMode: row.research_mode ?? "standard",
     messageCount: Array.isArray(row.messages) ? row.messages.length : 0
   };
 }
@@ -921,6 +1194,7 @@ function dbSessionToPublic(row) {
     createdAt: row.created_at ?? row.createdAt,
     updatedAt: row.updated_at ?? row.updatedAt,
     selectedFiles: row.selected_files ?? row.selectedFiles ?? [],
+    researchMode: row.research_mode ?? row.researchMode ?? "standard",
     allowWeb: Boolean(row.allow_web ?? row.allowWeb),
     messages: Array.isArray(row.messages) ? row.messages : []
   };

@@ -286,6 +286,79 @@ dd {
   padding: 18px 22px 16px;
 }
 
+.mode-panel {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.mode-label {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0;
+}
+
+.mode-toggle {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.mode-button {
+  position: relative;
+  min-height: 30px;
+  padding: 0 9px;
+  border: 1px solid #d4dcda;
+  border-radius: 8px;
+  background: #f0f3f4;
+  color: #39454c;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.mode-button:hover {
+  background: #e4eaec;
+}
+
+.mode-button.active {
+  background: var(--green);
+  border-color: var(--green);
+  color: #fff;
+}
+
+.mode-button[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 8px);
+  z-index: 20;
+  width: max-content;
+  max-width: 260px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #1f2a2f;
+  color: #fff;
+  font-size: 0.78rem;
+  font-weight: 600;
+  line-height: 1.35;
+  text-align: left;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, 4px);
+  transition: opacity 120ms ease, transform 120ms ease;
+}
+
+.mode-button[data-tooltip]:hover::after,
+.mode-button[data-tooltip]:focus-visible::after {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
 textarea {
   width: 100%;
   min-height: 96px;

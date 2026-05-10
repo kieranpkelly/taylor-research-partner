@@ -4,6 +4,7 @@ const state = {
   busy: false,
   status: null,
   apiKey: localStorage.getItem("taylor-openai-key") ?? "",
+  researchMode: normalizeResearchMode(localStorage.getItem("taylor-research-mode") ?? "standard"),
   selectedFiles: new Set(),
   sessions: [],
   activeSessionId: "",
@@ -50,6 +51,7 @@ const elements = {
   loadSessionButton: document.querySelector("#loadSessionButton"),
   newExchangeButton: document.querySelector("#newExchangeButton"),
   clearScopeButton: document.querySelector("#clearScopeButton"),
+  modeButtons: document.querySelectorAll("[data-research-mode]"),
   conversation: document.querySelector("#conversation"),
   sourceDock: document.querySelector("#sourceDock"),
   readerPanel: document.querySelector("#readerPanel")
@@ -85,6 +87,9 @@ elements.saveSessionButton.addEventListener("click", () => saveSession());
 elements.loadSessionButton.addEventListener("click", () => loadSession());
 elements.newExchangeButton.addEventListener("click", () => newExchange());
 elements.clearScopeButton.addEventListener("click", () => clearScope());
+elements.modeButtons.forEach((button) => {
+  button.addEventListener("click", () => setResearchMode(button.dataset.researchMode));
+});
 elements.documentList.addEventListener("click", (event) => {
   const row = event.target.closest("[data-file]");
   if (row) toggleDocument(row.dataset.file);
@@ -110,6 +115,7 @@ document.addEventListener("click", (event) => {
 document.addEventListener("mouseup", () => window.setTimeout(refreshSelectionLookup, 0));
 document.addEventListener("keyup", () => window.setTimeout(refreshSelectionLookup, 0));
 document.addEventListener("scroll", hideLookupPopover, true);
+renderResearchMode();
 
 async function bootstrapAuth() {
   const config = await getJson("/api/auth/config");
@@ -239,7 +245,7 @@ async function submitInquiry() {
   elements.queryInput.value = "";
   state.messages.push({ role: "user", content: query });
   renderMessage("user", query);
-  const pending = renderThinkingMessage("Searching and composing a complete answer");
+  const pending = renderThinkingMessage(thinkingLabelForMode(state.researchMode));
 
   state.busy = true;
   setButtons(false);
@@ -247,12 +253,15 @@ async function submitInquiry() {
     const result = await postJson("/api/chat", {
       messages: messagesForRequest(),
       allowWeb: elements.allowWeb.checked,
+      researchMode: state.researchMode,
       selectedFiles: selectedFilesArray()
     });
     pending.remove();
     state.messages.push({ role: "assistant", content: result.answer });
     renderMessage("assistant", result.answer);
-    renderSources(result.sources ?? [], result.webSources ?? []);
+    renderSources(result.sources ?? [], result.webSources ?? [], {
+      limit: result.sourceDisplayLimit ?? sourceDisplayLimitForMode(result.effectiveMode ?? state.researchMode)
+    });
     noteModelState(result);
   } catch (error) {
     pending.remove();
@@ -340,6 +349,55 @@ function clearScope() {
   renderStatus();
   renderDocumentList();
   logClientEvent("Corpus scope changed", { selectedFiles: [] });
+}
+
+function setResearchMode(mode) {
+  state.researchMode = normalizeResearchMode(mode);
+  localStorage.setItem("taylor-research-mode", state.researchMode);
+  renderResearchMode();
+}
+
+function renderResearchMode() {
+  elements.modeButtons.forEach((button) => {
+    const active = button.dataset.researchMode === state.researchMode;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", active ? "true" : "false");
+  });
+}
+
+function normalizeResearchMode(mode) {
+  const value = String(mode ?? "").trim();
+  return ["standard", "find-passage", "find-references", "synthesis", "deep-research"].includes(value)
+    ? value
+    : "standard";
+}
+
+function thinkingLabelForMode(mode) {
+  switch (normalizeResearchMode(mode)) {
+    case "find-passage":
+      return "Searching for the likely passage";
+    case "find-references":
+      return "Sweeping the corpus for references";
+    case "synthesis":
+      return "Searching and composing a synthesis";
+    case "deep-research":
+      return "Running a broader research pass";
+    default:
+      return "Interpreting the task and searching the corpus";
+  }
+}
+
+function sourceDisplayLimitForMode(mode) {
+  switch (normalizeResearchMode(mode)) {
+    case "find-passage":
+      return 16;
+    case "find-references":
+      return 30;
+    case "deep-research":
+      return 24;
+    default:
+      return 10;
+  }
 }
 
 function selectedFilesArray() {
@@ -432,6 +490,7 @@ async function saveSession() {
       id: state.activeSessionId,
       title: elements.sessionTitleInput.value.trim(),
       messages: state.messages,
+      researchMode: state.researchMode,
       selectedFiles: selectedFilesArray(),
       allowWeb: elements.allowWeb.checked
     });
@@ -459,6 +518,7 @@ async function loadSession() {
     state.messages = session.messages ?? [];
     state.selectedFiles = new Set(session.selectedFiles ?? []);
     elements.allowWeb.checked = Boolean(session.allowWeb);
+    setResearchMode(session.researchMode ?? state.researchMode);
     elements.sessionTitleInput.value = session.title ?? "";
     elements.conversation.innerHTML = "";
     for (const message of state.messages) renderMessage(message.role, message.content);
@@ -568,11 +628,12 @@ function thinkingMarkup(label) {
   `;
 }
 
-function renderSources(sources, webSources) {
+function renderSources(sources, webSources, options = {}) {
   state.sources.clear();
   for (const source of sources) state.sources.set(source.id, source);
 
-  const corpusCards = sources.slice(0, 10).map((source) => {
+  const sourceLimit = options.limit ?? 10;
+  const corpusCards = sources.slice(0, sourceLimit).map((source) => {
     const workNumber = workNumberForFile(source.file);
     return `
       <article class="source-card" id="card-${escapeAttribute(source.id)}">
@@ -957,6 +1018,9 @@ function setButtons(enabled) {
   elements.saveSessionButton.disabled = !enabled;
   elements.loadSessionButton.disabled = !enabled;
   elements.newExchangeButton.disabled = !enabled;
+  elements.modeButtons.forEach((button) => {
+    button.disabled = !enabled;
+  });
   elements.askButton.textContent = enabled ? "Investigate" : "Thinking...";
 }
 

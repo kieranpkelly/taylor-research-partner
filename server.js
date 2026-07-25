@@ -109,6 +109,7 @@ const retrievalProfiles = {
     sourceDisplayLimit: 24
   }
 };
+const transientOpenAIStatuses = new Set([408, 409, 429, 500, 502, 503, 504]);
 
 const server = http.createServer(async (request, response) => {
   try {
@@ -794,21 +795,40 @@ function createOpenAIPayload({ prompt, externalAllowed, effort, maxOutputTokens 
 }
 
 async function sendOpenAIRequest(payload, apiKey) {
-  const apiResponse = await fetch("https://api.openai.com/v1/responses", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`
-    },
-    body: JSON.stringify(payload)
-  });
+  let lastError = "";
 
-  if (!apiResponse.ok) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const apiResponse = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`
+      },
+      body: JSON.stringify(payload)
+    });
+
+    if (apiResponse.ok) return apiResponse.json();
+
     const detail = await apiResponse.text();
-    throw new Error(`OpenAI API request failed (${apiResponse.status}): ${detail}`);
+    const requestId = apiResponse.headers.get("x-request-id");
+    lastError = requestId ? `${detail} Request ID: ${requestId}` : detail;
+    const canRetry = transientOpenAIStatuses.has(apiResponse.status) && attempt < 2;
+    if (!canRetry) {
+      throw new Error(`OpenAI API request failed (${apiResponse.status}): ${lastError}`);
+    }
+
+    await delay(openAIRetryDelay(attempt));
   }
 
-  return apiResponse.json();
+  throw new Error(`OpenAI API request failed after retries: ${lastError}`);
+}
+
+function openAIRetryDelay(attempt) {
+  return 650 * 2 ** attempt;
+}
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function getRequestApiKey(request) {
